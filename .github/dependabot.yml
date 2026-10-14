@@ -1,15 +1,21 @@
 # Proposes updates (as pull requests) for the pinned actions and Python packages.
 # Nothing updates on its own: each change waits for the owner to merge it.
+# Cooldown: ignore releases younger than 14 days (poisoned releases are usually
+# caught within days); security fixes are not delayed by it.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 14
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 14
     groups:
       python:
         patterns: ["*"]

@@ -41,7 +41,9 @@ jobs:
           cache-dependency-path: requirements*.txt
 
       - name: Install
-        run: python -m pip install -r requirements-dev.txt
+        # Every package must match a SHA-256 hash in the lock, and only prebuilt
+        # wheels are allowed, so no package runs its own setup code at install.
+        run: 'python -m pip install --require-hashes --only-binary :all: --no-deps -r requirements-dev.txt'
 
       - name: Test (no secrets)
         run: python -m pytest -q

@@ -1,0 +1,6 @@
+# Runtime + test dependencies. requirements-dev.txt is GENERATED from this file:
+#   scripts/lock.sh
+-r requirements.in
+-c requirements.txt      # same runtime versions as requirements.txt
+pytest==9.0.3
+onnx==1.22.0             # tests only: builds a toy model for the embedder test
