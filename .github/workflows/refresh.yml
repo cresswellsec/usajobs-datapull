@@ -1,0 +1,80 @@
+# Scheduled refresh: USAJOBS -> clean bundle -> private Hugging Face dataset.
+#
+# Security (this repo is public):
+# - Secrets live in the "production" environment, which only the main branch
+#   can use. They are passed to the one step that needs them, never to tests.
+# - Triggers are the schedule and the manual button only; never pull requests.
+# - Read-only token for the repo; actions pinned to full commit SHAs.
+# - Nothing from data/ is uploaded or cached: raw pages contain HR contacts.
+#   The only cache is the public embedding model.
+name: refresh
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"   # every 15 min, off the busy top of the hour; GitHub may start late
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    env:
+      PYTHONUNBUFFERED: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Test (no secrets)
+        run: python -m pytest -q
+
+      - name: Restore embedding model
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/models
+          key: models-${{ hashFiles('usajobs_datapull/embedders.py') }}
+
+      - name: Run pipeline
+        env:
+          USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+          USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -m usajobs_datapull all
+
+      - name: Summary
+        if: always()
+        run: |
+          python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, pathlib
+          fetches = sorted(pathlib.Path("data/raw").glob("*/_fetch.json"))
+          result = pathlib.Path("dist/publish.json")
+          print("### Refresh")
+          if fetches:
+              f = json.loads(fetches[-1].read_text())
+              print(f"- fetched {f['items']} postings in {f['requests']} request(s), snapshot {f['snapshot']}")
+          else:
+              print("- fetch did not complete")
+          if result.exists():
+              r = json.loads(result.read_text())
+              print(f"- publish: **{r['status']}**, bundle `{r['bundle_id']}`")
+          else:
+              print("- publish did not run (an earlier stage failed)")
+          EOF

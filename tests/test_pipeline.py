@@ -155,3 +155,11 @@ def test_check_shows_boolean_settings(capsys):
     cli.check()
     line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("HF_DATASET_PRIVATE"))
     assert line.split()[-1] in ("true", "false")
+
+
+def test_publish_result_file_for_automation(tmp_path):
+    path = tmp_path / "dist" / "publish.json"
+    publish.write_result({"status": "published", "bundle_id": "2026-10-14_abcd1234", "replaced": None,
+                          "commit": "https://example/commit"}, path)
+    assert json.loads(path.read_text()) == {"status": "published", "bundle_id": "2026-10-14_abcd1234",
+                                            "replaced": None}

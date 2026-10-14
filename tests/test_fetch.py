@@ -228,3 +228,22 @@ def test_max_pages_cap(tmp_path, monkeypatch):
     c, _ = make_client(s)
     with pytest.raises(ApiError, match="MAX_PAGES"):
         fetch_snapshot(c, ["2210"], tmp_path, "2026-10-12")
+
+
+def test_query_at_the_10000_result_cap_stops_the_run(tmp_path):
+    """USAJOBS never returns more than 10,000 results per query, so a total at the
+    cap means postings would be missing: fail instead of publishing a partial set."""
+    s = FakeSession(FakeResponse(body=page(descriptors(500), total=10_000, pages=20)))
+    c, _ = make_client(s)
+    with pytest.raises(ApiError, match="10000"):
+        fetch_snapshot(c, ["2210"], tmp_path, "2026-10-12")
+    assert len(s.calls) == 1
+    assert not (tmp_path / "2026-10-12").exists()
+
+
+def test_snapshot_date_is_us_eastern_whatever_the_machine_zone():
+    from datetime import datetime, timezone
+    from usajobs_datapull import config
+    # 02:00 UTC on Oct 14 is still Oct 13 in New York (EDT, UTC-4)
+    assert config.today(datetime(2026, 10, 14, 2, 0, tzinfo=timezone.utc)).isoformat() == "2026-10-13"
+    assert config.today(datetime(2026, 10, 14, 5, 0, tzinfo=timezone.utc)).isoformat() == "2026-10-14"

@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -25,6 +27,7 @@ REPORTS = DATA / "reports"            # data-quality reports, one per stage run
 MODELS = DATA / "models"              # downloaded embedding models (Hugging Face cache)
 DIST = ROOT / "dist"
 BUNDLE_DIR = DIST / "bundle"          # the built bundle, ready to publish
+PUBLISH_RESULT = DIST / "publish.json"  # what the last publish did: published / unchanged
 
 # --- credentials (secrets: .env only) --------------------------------------
 USAJOBS_API_KEY = os.getenv("USAJOBS_API_KEY")
@@ -49,6 +52,9 @@ USAJOBS_SEARCH_URL = "https://data.usajobs.gov/api/Search"
 USAJOBS_CODELIST_URL = "https://data.usajobs.gov/api/codelist/"
 RESULTS_PER_PAGE = 500  # documented maximum (1000 also works)
 SEARCH_RESULT_WINDOW = 10_000  # observed: one query never returns more than this many results
+# Snapshot dates use one fixed zone, so a run on a UTC CI runner and a run on
+# the owner's Mac name the same day the same way (US Eastern, like USAJOBS).
+SNAPSHOT_TZ = "America/New_York"
 
 # --- probe ----------------------------------------------------------------
 PROBE_PAGE_SIZES = (25, 100, 500, 1000)
@@ -114,6 +120,11 @@ def require(*names: str) -> None:
         print(f"Missing required setting(s): {', '.join(missing)}", file=sys.stderr)
         print(f"Set them in {ROOT / '.env'} -- see .env.example", file=sys.stderr)
         raise SystemExit(1)
+
+
+def today(now: datetime | None = None) -> date:
+    """Today's date in SNAPSHOT_TZ, whatever the machine's own time zone."""
+    return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(SNAPSHOT_TZ)).date()
 
 
 def ensure_dirs() -> None:

@@ -1,0 +1,15 @@
+# Proposes updates (as pull requests) for the pinned actions and Python packages.
+# Nothing updates on its own: each change waits for the owner to merge it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]

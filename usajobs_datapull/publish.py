@@ -69,8 +69,17 @@ def publish(bundle_dir: Path, repo_id: str, api, require_private: bool = True) -
             "commit": getattr(commit, "commit_url", str(commit))}
 
 
+def write_result(result: dict, path: Path | None = None) -> None:
+    """Record what this publish did, for automation (CI summary, the site rebuild trigger)."""
+    path = path or config.PUBLISH_RESULT
+    path.parent.mkdir(parents=True, exist_ok=True)
+    keep = {k: result.get(k) for k in ("status", "bundle_id", "replaced")}
+    path.write_text(json.dumps(keep, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def run() -> None:
     config.require("HF_TOKEN", "HF_DATASET_REPO")
+    config.PUBLISH_RESULT.unlink(missing_ok=True)   # never leave a stale result behind a failed run
     from huggingface_hub import HfApi
     from . import log as logsetup
     logsetup.setup("publish")
@@ -84,6 +93,7 @@ def run() -> None:
     except (AssertionError, RuntimeError) as e:
         print(f"publish failed: {e}", file=sys.stderr)
         raise SystemExit(1)
+    write_result(result)
     if result["status"] == "unchanged":
         print(f"publish: {config.HF_DATASET_REPO} already has bundle {result['bundle_id']} -- nothing to do")
     else:

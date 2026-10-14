@@ -14,7 +14,7 @@ import logging
 import math
 import os
 import shutil
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config, store
@@ -73,6 +73,9 @@ def fetch_snapshot(client: Client, series: list[str], raw_root: Path, day: str) 
         declared = (result.get("UserArea") or {}).get("NumberOfPages")
         pages = int(declared) if str(declared or "").isdigit() else math.ceil(total / config.RESULTS_PER_PAGE)
         pages = max(pages, 1)
+        if total >= config.SEARCH_RESULT_WINDOW:
+            raise ApiError(f"the API reports {total} results, and one query never returns more than "
+                           f"{config.SEARCH_RESULT_WINDOW}: results would be missing. Narrow JOB_SERIES")
 
         _write_atomic(partial / f"page-{page:03d}.json", data)
         summary["pages"] = page
@@ -109,7 +112,7 @@ def run() -> None:
     logsetup.setup("fetch")
 
     series = series_list(config.JOB_SERIES)
-    day = date.today().isoformat()
+    day = config.today().isoformat()
     con = store.connect()
     run_id = store.start_run(con, "fetch", day)
     client = Client(config.USAJOBS_API_KEY, config.USAJOBS_USER_AGENT)
