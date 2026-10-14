@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "chunks.schema.json",
+  "title": "usajobs-postings: one chunk (chunks.jsonl line)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "chunk_id",
+    "posting_id",
+    "section",
+    "text",
+    "tokens"
+  ],
+  "properties": {
+    "chunk_id": {
+      "type": "string",
+      "pattern": "^\\d+:(summary|duties|qualifications):\\d+$"
+    },
+    "posting_id": {
+      "type": "string",
+      "pattern": "^\\d+$"
+    },
+    "section": {
+      "enum": [
+        "summary",
+        "duties",
+        "qualifications"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tokens": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

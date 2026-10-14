@@ -1,0 +1,18 @@
+#!/bin/sh
+# Blocks any commit containing a key-shaped string.
+# Install once per clone:  git config core.hooksPath .githooks
+# (Git for Windows runs this hook through its bundled sh, so it works in PowerShell too.)
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks not installed. Windows: winget install Gitleaks.Gitleaks  | macOS: brew install gitleaks" >&2
+  echo "(or download a release from https://github.com/gitleaks/gitleaks/releases)" >&2
+  exit 1
+fi
+gitleaks protect --staged --redact --no-banner --config .gitleaks.toml
+status=$?
+if [ $status -ne 0 ]; then
+  echo "" >&2
+  echo "COMMIT BLOCKED: a secret was detected in the staged changes." >&2
+  echo "Move the value into .env (gitignored) and add its NAME to .env.example." >&2
+  exit 1
+fi
+exit 0

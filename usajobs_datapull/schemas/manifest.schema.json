@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manifest.schema.json",
+  "title": "usajobs-postings: manifest.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "built_at",
+    "source",
+    "counts",
+    "embedding",
+    "chunking",
+    "lexical",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "bundle_id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}_[0-9a-f]{8}$"
+    },
+    "built_at": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "api",
+        "series",
+        "snapshot",
+        "as_of",
+        "status"
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "postings",
+        "chunks"
+      ]
+    },
+    "embedding": {
+      "type": "object",
+      "required": [
+        "model",
+        "runtime",
+        "onnx_file",
+        "dim",
+        "pooling",
+        "normalized",
+        "dtype",
+        "quantization",
+        "query_prefix",
+        "doc_prefix",
+        "max_tokens"
+      ]
+    },
+    "chunking": {
+      "type": "object",
+      "required": [
+        "strategy",
+        "sections",
+        "max_words",
+        "header_fields"
+      ]
+    },
+    "lexical": {
+      "type": "object",
+      "required": [
+        "tokenizer",
+        "bm25"
+      ]
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

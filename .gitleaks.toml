@@ -1,0 +1,38 @@
+# Custom rules on top of gitleaks' defaults, targeting the credential formats
+# this project actually uses. The defaults missed modern OpenAI project keys.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "openai-key-any"
+description = "OpenAI API key (classic, project, service-account or admin)"
+regex = '''\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}'''
+keywords = ["sk-"]
+
+[[rules]]
+id = "long-hex-token"
+description = "Long hex token assigned to a token/key field"
+regex = '''(?i)\b(?:token|api[_-]?key|secret)\b\s*[:=]\s*["']?[a-f0-9]{40,}'''
+keywords = ["token", "api_key", "apikey", "secret"]
+
+[[rules]]
+id = "usajobs-key"
+description = "USAJOBS API key"
+regex = '''(?i)usajobs[_-]?api[_-]?key\s*[:=]\s*["']?[A-Za-z0-9+/=]{30,}'''
+keywords = ["usajobs"]
+
+[[rules]]
+id = "huggingface-token"
+description = "Hugging Face access token"
+regex = '''\bhf_[A-Za-z0-9]{30,}\b'''
+keywords = ["hf_"]
+
+[[rules]]
+id = "gcp-private-key"
+description = "GCP service-account private key"
+regex = '''-----BEGIN (?:RSA )?PRIVATE KEY-----'''
+keywords = ["PRIVATE KEY"]
+
+[allowlist]
+description = "placeholders and examples are fine"
+paths = ['''\.env\.example$''', '''\.gitleaks\.toml$''']

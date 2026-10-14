@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "postings.schema.json",
+  "title": "usajobs-postings: one posting (postings.jsonl line)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^\\d+$",
+      "description": "USAJOBS control number (primary key)"
+    },
+    "position_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agency": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "department": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "series": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{4}$"
+      }
+    },
+    "pay_plan": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "grade_low": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "grade_high": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "salary_min": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "salary_max": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "pay_interval": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "salary_annual_min": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "salary_annual_max": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "city",
+          "state",
+          "country"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "location_display": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "remote": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "telework": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "clearance": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "clearance_required": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "hiring_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "opens_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "closes_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "apply_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "duties": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "qualifications": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "key_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "broad_notice": {
+      "type": "boolean"
+    },
+    "group_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{12}$"
+    },
+    "quality_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "position_id",
+    "title",
+    "agency",
+    "department",
+    "series",
+    "pay_plan",
+    "grade_low",
+    "grade_high",
+    "salary_min",
+    "salary_max",
+    "pay_interval",
+    "salary_annual_min",
+    "salary_annual_max",
+    "locations",
+    "location_display",
+    "remote",
+    "telework",
+    "clearance",
+    "clearance_required",
+    "hiring_paths",
+    "opens_at",
+    "closes_at",
+    "url",
+    "apply_url",
+    "summary",
+    "duties",
+    "qualifications",
+    "key_requirements",
+    "broad_notice",
+    "group_id",
+    "quality_flags"
+  ]
+}

@@ -1,0 +1,32 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+config.ini
+*.pem
+*-key.json
+service_account*.json
+
+# working data — local only, rebuildable
+data/*
+!data/.gitkeep
+dist/
+*.log
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# local only
+notes/
+CLAUDE.md
+.claude/
