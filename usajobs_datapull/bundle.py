@@ -20,7 +20,7 @@ import numpy as np
 from . import config, retrieval, store
 from .embed import lookup
 
-SCHEMA_VERSION = "1.1.3"
+SCHEMA_VERSION = "1.1.4"
 SCHEMAS = Path(__file__).parent / "schemas"
 REPO = Path(__file__).resolve().parent.parent
 DOCS = {"CONTRACT.md": REPO / "CONTRACT.md", "BUNDLE.md": REPO / "docs" / "BUNDLE.md"}   # shipped in every bundle

@@ -24,7 +24,7 @@ can change. JSON Schemas ship in the bundle (`schema/`).
 
 ```json
 {
-  "schema_version": "1.1.3",
+  "schema_version": "1.1.4",
   "bundle_id": "2026-10-12_a1b2c3d4",
   "built_at": "2026-10-12T06:00:00+00:00",
   "source": {
@@ -68,8 +68,10 @@ never hard-code them.**
 - `bundle_id`: `as_of` date + first 8 hex chars of a SHA-256 over every file's
   checksum except `manifest.json` and `README.md`. Same content ⇒ same id;
   `built_at` is the only field that changes between identical builds.
-- `source.snapshot`: `YYYY-MM-DD` (fetched that day) or `archive-YYYY-MM-DD`.
-- `source.as_of`: the date the data reflects.
+- `built_at`: UTC time the current content was built. Unchanged checks don't
+  publish, so it only moves when the data (or `as_of`) changes.
+- `source.snapshot`: `YYYY-MM-DD` (fetched that day, US Eastern) or `archive-YYYY-MM-DD`.
+- `source.as_of`: the date the data reflects (US Eastern).
 - `files`: every file in the bundle except `manifest.json` itself.
 
 ## Which postings are in a bundle
@@ -243,6 +245,8 @@ cosine. Informational; its shape may grow in minor versions.
 - Consumers check the major version and refuse bundles they don't support.
 - Each publish is one Hugging Face commit tagged with the `bundle_id`.
   `main` is always the latest. Publishing an identical bundle is a no-op.
+- The pipeline checks every 15 minutes and publishes only on a change (see
+  CONTRACT.md → Updates).
 - The dataset is private (see CONTRACT.md → Access). `publish` refuses a
   public dataset while `HF_DATASET_PRIVATE=true` (the default).
 
@@ -253,5 +257,7 @@ cosine. Informational; its shape may grow in minor versions.
 2. Verify each file's `sha256` against the manifest.
 3. Take the embedding model, ONNX file, pooling, prefixes, dimension and tokenizer
    **from the manifest**. A model mismatch is a hard error: the vectors would be meaningless.
-4. Hide postings whose `closes_at` has passed (the bundle may be days old).
+4. Hide postings whose `closes_at` has passed (the bundle may be hours old).
 5. Pass `conformance.json` in CI.
+6. Detect updates by comparing `manifest.bundle_id`, never `built_at`.
+7. Follow CONTRACT.md → Display (source, link, retrieval date, non-affiliation).

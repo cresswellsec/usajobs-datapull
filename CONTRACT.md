@@ -17,6 +17,29 @@ https://huggingface.co/datasets/cccc864/usajobs-postings/resolve/<bundle_id>/<fi
   `Authorization: Bearer <token>`. Keep it server-side or in build secrets.
 - Browser apps copy the bundle in at build time; that copy is public.
 
+## Updates
+
+- USAJOBS is checked every 15 minutes (best effort; a run can be late or skipped).
+  A new bundle is published only when the data changed, and always on the first
+  run after midnight US Eastern, when `source.as_of` rolls over.
+- To detect a new bundle, read `main/manifest.json` and compare `bundle_id` with
+  the one you last built from. Rebuild only when it differs. Don't check more
+  often than every 15 minutes.
+- `built_at` (UTC) is when the current data was built, not when it was last
+  checked: an unchanged check publishes nothing. An old `built_at` alone does not
+  mean the pipeline stopped. `source.as_of` older than today (US Eastern) after
+  about 01:00 does.
+
+## Display
+
+From the USAJOBS API terms. Apps showing this data should:
+
+- name USAJOBS as the source and link each job to its `url`, the official announcement;
+- show when the data was retrieved (`built_at`);
+- say the app is not operated, sponsored or endorsed by OPM or USAJOBS, and that
+  the data is reformatted: the official announcement is authoritative;
+- send applicants to USAJOBS (`apply_url` or `url`) and never take applications.
+
 ## Promises
 
 Every published bundle passed all of these:
