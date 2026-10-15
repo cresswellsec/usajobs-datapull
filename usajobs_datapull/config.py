@@ -57,7 +57,7 @@ SEARCH_RESULT_WINDOW = 10_000  # observed: one query never returns more than thi
 SNAPSHOT_TZ = "America/New_York"
 
 # --- probe ----------------------------------------------------------------
-PROBE_PAGE_SIZES = (25, 100, 500, 1000)
+PROBE_PAGE_SIZES = (25, 100, 500)   # 500 = documented max rows per page; never ask for more
 PROBE_MAX_BURST = 100         # upper bound for `probe --burst N`
 PROBE_RATE_STEPS = (1, 2, 4, 8)   # `probe --rate`: target requests/second, one step at a time
 PROBE_RATE_STEP_REQUESTS = 30     # requests per step; worst case 120 requests in about a minute

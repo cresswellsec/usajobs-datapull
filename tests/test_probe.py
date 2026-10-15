@@ -71,7 +71,8 @@ def test_secrets_never_reach_the_report():
 
 
 def test_burst_stops_at_first_throttle():
-    api = FakeUsajobs(throttle_after=10)   # the 8 probe requests, then 2 burst requests succeed
+    probe_requests = 2 + len(config.PROBE_PAGE_SIZES) + 2
+    api = FakeUsajobs(throttle_after=probe_requests + 2)   # the probe requests, then 2 burst requests succeed
     report = probe(client_for(api), burst=50, timer=lambda: 0.0)
     assert report["burst"]["sent"] == 3
     assert report["burst"]["throttled"]["status"] == 429

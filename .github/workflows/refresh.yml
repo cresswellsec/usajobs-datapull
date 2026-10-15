@@ -10,8 +10,10 @@
 name: refresh
 
 on:
+  # The main clock is an external trigger (workflow_dispatch every 15 min).
+  # GitHub's cron is best-effort and drops most slots, so it's only a fallback.
   schedule:
-    - cron: "7,22,37,52 * * * *"   # every 15 min, off the busy top of the hour; GitHub may start late
+    - cron: "41 * * * *"
   workflow_dispatch:
 
 permissions:
