@@ -163,3 +163,42 @@ def test_publish_result_file_for_automation(tmp_path):
                           "commit": "https://example/commit"}, path)
     assert json.loads(path.read_text()) == {"status": "published", "bundle_id": "2026-10-14_abcd1234",
                                             "replaced": None}
+
+
+def _remote_like(folder, tmp_path, **changes):
+    """Write a 'remote' manifest: the local one with some fields or file hashes changed."""
+    m = json.loads((folder / "manifest.json").read_text())
+    for key, value in changes.items():
+        if key.startswith("file:"):
+            m["files"][key[5:]]["sha256"] = value
+        else:
+            m[key] = value
+    path = tmp_path / f"remote-{len(changes)}-{abs(hash(tuple(changes)))}.json"
+    path.write_text(json.dumps(m))
+    return str(path)
+
+
+def test_publish_skips_when_only_vector_rounding_differs(con, fake_embedder, tmp_path):
+    """Different GitHub runners round a few int8 vector values differently: same data, no republish."""
+    folder, m = build(con, fake_embedder, tmp_path / "dist")
+    remote = _remote_like(folder, tmp_path, bundle_id="2026-10-12_00000000",
+                          **{"file:vectors.int8.bin": "0" * 64, "file:scales.f32.bin": "1" * 64,
+                             "file:conformance.json": "2" * 64, "file:quality.json": "3" * 64})
+    api = FakeApi(remote_manifest=remote)
+    result = publish.publish(folder, "cccc864/usajobs-postings", api)
+    assert result == {"status": "unchanged", "bundle_id": "2026-10-12_00000000"}
+    assert api.uploads == [] and api.tags == []
+
+
+@pytest.mark.parametrize("change", [
+    {"file:postings.jsonl": "0" * 64},           # a posting changed
+    {"file:chunks.jsonl": "0" * 64},             # chunk text changed
+    {"source": {"as_of": "2026-10-11"}},         # the day rolled over
+    {"embedding": {"model": "another/model"}},   # a different model: vectors differ on purpose
+    {"schema_version": "0.9.0"},
+])
+def test_publish_still_publishes_real_changes(con, fake_embedder, tmp_path, change):
+    folder, m = build(con, fake_embedder, tmp_path / "dist")
+    api = FakeApi(remote_manifest=_remote_like(folder, tmp_path, bundle_id="2026-10-12_00000000", **change))
+    assert publish.publish(folder, "cccc864/usajobs-postings", api)["status"] == "published"
+    assert len(api.uploads) == 1

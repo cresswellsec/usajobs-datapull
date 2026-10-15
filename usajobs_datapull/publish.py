@@ -1,8 +1,9 @@
 """dist/bundle/ -> Hugging Face dataset (HF_DATASET_REPO).
 
 Re-verifies the bundle, refuses a public dataset while HF_DATASET_PRIVATE is
-true, skips if the remote bundle_id matches, uploads as one commit (removing
-stale files) and tags it with the bundle_id. `api` is injectable for tests.
+true, skips if the remote bundle holds the same data (same bundle_id, or only
+vector rounding differs), uploads as one commit (removing stale files) and tags
+it with the bundle_id. `api` is injectable for tests.
 """
 from __future__ import annotations
 
@@ -17,6 +18,10 @@ log = logging.getLogger("usajobs_datapull.publish")
 
 # Only bundle files are ever deleted from the repo (never .gitattributes etc.).
 BUNDLE_PATTERNS = ["*.json", "*.jsonl", "*.bin", "*.md", "schema/*"]
+# Files that change when the same text is embedded on a different CPU (int8
+# rounding flips), or that only report on the build. They don't decide whether
+# the data changed.
+NOT_DATA = {"vectors.int8.bin", "scales.f32.bin", "conformance.json", "quality.json"}
 
 
 def _not_found(repo_id: str, e: Exception) -> RuntimeError:
@@ -33,7 +38,7 @@ def is_private(api, repo_id: str) -> bool:
         raise
 
 
-def remote_bundle_id(api, repo_id: str) -> str | None:
+def remote_manifest(api, repo_id: str) -> dict | None:
     try:
         path = api.hf_hub_download(repo_id=repo_id, filename="manifest.json", repo_type="dataset",
                                    force_download=True)
@@ -44,7 +49,26 @@ def remote_bundle_id(api, repo_id: str) -> str | None:
         if name == "RepositoryNotFoundError":
             raise _not_found(repo_id, e) from e
         raise
-    return json.loads(Path(path).read_text(encoding="utf-8")).get("bundle_id")
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def remote_bundle_id(api, repo_id: str) -> str | None:
+    m = remote_manifest(api, repo_id)
+    return m.get("bundle_id") if m else None
+
+
+def same_data(local: dict, remote: dict | None) -> bool:
+    """True if the two bundles hold the same data: same date, schema and model,
+    and identical files apart from NOT_DATA."""
+    if not remote:
+        return False
+    for key in ("schema_version", "source", "embedding"):
+        if local.get(key) != remote.get(key):
+            return False
+    lf, rf = local.get("files", {}), remote.get("files", {})
+    if set(lf) != set(rf):
+        return False
+    return all(lf[k].get("sha256") == rf[k].get("sha256") for k in lf if k not in NOT_DATA)
 
 
 def publish(bundle_dir: Path, repo_id: str, api, require_private: bool = True) -> dict:
@@ -55,9 +79,14 @@ def publish(bundle_dir: Path, repo_id: str, api, require_private: bool = True) -
         raise RuntimeError(f"dataset {repo_id} is PUBLIC; nothing uploaded. Make it private "
                            f"(huggingface.co/datasets/{repo_id}/settings -> Change dataset visibility), "
                            f"or set HF_DATASET_PRIVATE=false in .env to publish publicly on purpose")
-    current = remote_bundle_id(api, repo_id)
+    remote = remote_manifest(api, repo_id)
+    current = remote.get("bundle_id") if remote else None
     if current == bundle_id:
         return {"status": "unchanged", "bundle_id": bundle_id}
+    local = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    if same_data(local, remote):
+        log.info("only vector rounding differs from %s -- not republishing", current)
+        return {"status": "unchanged", "bundle_id": current}
     commit = api.upload_folder(
         repo_id=repo_id, repo_type="dataset", folder_path=str(bundle_dir),
         commit_message=f"Bundle {bundle_id}",

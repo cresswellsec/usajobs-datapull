@@ -1,4 +1,5 @@
-# Scheduled refresh: USAJOBS -> clean bundle -> private Hugging Face dataset.
+# Scheduled refresh: USAJOBS -> clean bundle -> private Hugging Face dataset,
+# then, only when the data changed, rebuild the public site from that bundle.
 #
 # Security (this repo is public):
 # - Secrets live in the "production" environment, which only the main branch
@@ -7,6 +8,9 @@
 # - Read-only token for the repo; actions pinned to full commit SHAs.
 # - Nothing from data/ is uploaded or cached: raw pages contain HR contacts.
 #   The only cache is the public embedding model.
+# - The site generator (private repo) is read with a read-only deploy key and
+#   built with no secrets in its environment; only the final push step gets the
+#   write deploy key for the Pages repo, and that key can only push to it.
 name: refresh
 
 on:
@@ -62,6 +66,55 @@ jobs:
           USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python -m usajobs_datapull all
+
+      - name: Did the data change?
+        id: data
+        run: |
+          python -c "import json; r = json.load(open('dist/publish.json')); print('published=' + ('true' if r['status'] == 'published' else 'false'))" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the site generator
+        if: steps.data.outputs.published == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cresswellsec/usajobs-static-rag
+          path: site
+          ssh-key: ${{ secrets.SITE_REPO_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.data.outputs.published == 'true'
+        with:
+          node-version: "24"
+
+      - name: Build site (no secrets)
+        if: steps.data.outputs.published == 'true'
+        working-directory: site
+        env:
+          BUNDLE_DIR: ${{ github.workspace }}/dist/bundle
+        # Lockfile-verified install with no install scripts; the bundle comes from
+        # this run, so no Hugging Face token is needed.
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/fetch-bundle.mjs
+          npm run check:bundle
+          npm run build
+
+      - name: Publish site
+        if: steps.data.outputs.published == 'true'
+        working-directory: site
+        env:
+          PAGES_REPO: cresswellsec/2210StaticSite
+          PAGES_REMOTE: git@github.com:cresswellsec/2210StaticSite.git
+          PAGES_DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          # GitHub's SSH host keys from its API (over HTTPS), not trust-on-first-use
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > ~/.ssh/known_hosts
+          key="$RUNNER_TEMP/pages_key"
+          (umask 077; printf '%s\n' "$PAGES_DEPLOY_KEY" > "$key")
+          trap 'rm -f "$key"' EXIT
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" node scripts/publish-pages.mjs
+          echo "- site: rebuilt and pushed to GitHub Pages" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Summary
         if: always()
