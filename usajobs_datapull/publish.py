@@ -52,6 +52,22 @@ def remote_manifest(api, repo_id: str) -> dict | None:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def remote_first_seen(api, repo_id: str) -> dict[str, str]:
+    """{posting id: first_seen_at} from the published bundle; {} if there is none yet."""
+    try:
+        path = api.hf_hub_download(repo_id=repo_id, filename="postings.jsonl", repo_type="dataset",
+                                   force_download=True)
+    except Exception as e:
+        name = type(e).__name__
+        if name in ("EntryNotFoundError", "RemoteEntryNotFoundError", "RevisionNotFoundError"):
+            return {}
+        if name == "RepositoryNotFoundError":
+            raise _not_found(repo_id, e) from e
+        raise
+    rows = (json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l)
+    return {r["id"]: r["first_seen_at"] for r in rows if r.get("first_seen_at")}
+
+
 def remote_bundle_id(api, repo_id: str) -> str | None:
     m = remote_manifest(api, repo_id)
     return m.get("bundle_id") if m else None

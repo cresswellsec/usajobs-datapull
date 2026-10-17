@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from collections import Counter
@@ -20,7 +21,7 @@ import numpy as np
 from . import config, retrieval, store
 from .embed import lookup
 
-SCHEMA_VERSION = "1.1.4"
+SCHEMA_VERSION = "1.2.0"
 SCHEMAS = Path(__file__).parent / "schemas"
 REPO = Path(__file__).resolve().parent.parent
 DOCS = {"CONTRACT.md": REPO / "CONTRACT.md", "BUNDLE.md": REPO / "docs" / "BUNDLE.md"}   # shipped in every bundle
@@ -149,12 +150,18 @@ details (emails, phones, named contacts) are deliberately removed.
 """
 
 
-def build(con, label: str, embedder, series: list[str], out_root: Path, built_at: str | None = None) -> tuple[Path, dict]:
+def build(con, label: str, embedder, series: list[str], out_root: Path, built_at: str | None = None,
+          first_seen: dict[str, str] | None = None) -> tuple[Path, dict]:
+    """first_seen: {posting id: first_seen_at} carried over from the previous bundle.
+    Postings not in it get this snapshot's fetch time."""
     spec = embedder.spec
     as_of = store.snapshot_date(label)
     postings = store.select_postings(con, label, series)
     if not postings:
         raise LookupError(f"no in-scope postings in {label} for series {series}")
+    seen_at = store.fetched_at(con, label) or f"{as_of}T00:00:00+00:00"
+    for p in postings:
+        p["first_seen_at"] = (first_seen or {}).get(p["id"]) or seen_at
     chunks = store.chunks_for(con, label, [p["id"] for p in postings])
     if not chunks:
         raise LookupError(f"no chunks for {label} -- run `chunk` first")
@@ -307,6 +314,19 @@ def verify(folder: Path, embedder=None) -> dict:
     return {"postings": len(ids), "chunks": len(cids), "bundle_id": m["bundle_id"]}
 
 
+def previous_first_seen(label: str) -> dict[str, str]:
+    """first_seen_at values from the published bundle, for live snapshots. Without
+    HF_TOKEN every posting gets this fetch's time; with it, a failed read stops the build."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", label):
+        return {}
+    if not (config.HF_TOKEN and config.HF_DATASET_REPO):
+        print("note: HF_TOKEN not set -- first_seen_at = this fetch for every posting", file=sys.stderr)
+        return {}
+    from huggingface_hub import HfApi
+    from .publish import remote_first_seen
+    return remote_first_seen(HfApi(token=config.HF_TOKEN), config.HF_DATASET_REPO)
+
+
 def run() -> None:
     from . import embedders, log as logsetup
     from .fetch import series_list
@@ -319,8 +339,15 @@ def run() -> None:
         raise SystemExit(1)
     run_id = store.start_run(con, "bundle", label)
     try:
+        first_seen = previous_first_seen(label)
+    except Exception as e:                         # network, auth: never guess first_seen_at
+        store.finish_run(con, run_id, {}, status="failed")
+        print(f"bundle failed: can't read first_seen_at from the published bundle: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    try:
         embedder = embedders.load()
-        folder, manifest = build(con, label, embedder, series_list(config.JOB_SERIES), config.DIST)
+        folder, manifest = build(con, label, embedder, series_list(config.JOB_SERIES), config.DIST,
+                                 first_seen=first_seen)
     except (LookupError, AssertionError) as e:
         store.finish_run(con, run_id, {}, status="failed")
         print(f"bundle failed: {e}", file=sys.stderr)

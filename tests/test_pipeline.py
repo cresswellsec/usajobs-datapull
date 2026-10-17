@@ -79,6 +79,32 @@ def test_bundle_is_deterministic(con, fake_embedder, tmp_path):
     assert b"\r\n" not in (tmp_path / "one/bundle/postings.jsonl").read_bytes()
 
 
+def test_first_seen_at_is_carried_over(con, fake_embedder, tmp_path):
+    selected = store.select_postings(con, LABEL, ["2210"])
+    old = selected[0]["id"]
+    rows, _ = chunk.chunk_postings(selected)
+    chunk.save(con, LABEL, rows)
+    embed.embed_chunks(con, store.chunks_for(con, LABEL, [p["id"] for p in selected]), fake_embedder)
+    folder, _ = bundle.build(con, LABEL, fake_embedder, ["2210"], tmp_path / "dist",
+                             first_seen={old: "2024-10-01T12:00:00+00:00"})
+    seen = {p["id"]: p["first_seen_at"] for p in bundle.read(folder)["postings"]}
+    assert seen.pop(old) == "2024-10-01T12:00:00+00:00"
+    assert set(seen.values()) == {"2024-11-12T00:00:00+00:00"}    # archives record no fetch time
+
+
+def test_first_seen_at_uses_the_fetch_time(con, fake_embedder, tmp_path):
+    con.execute("UPDATE snapshots SET fetched_at = ? WHERE snapshot = ?", ("2024-11-12T14:05:00+00:00", LABEL))
+    folder, _ = build(con, fake_embedder, tmp_path / "dist")
+    assert {p["first_seen_at"] for p in bundle.read(folder)["postings"]} == {"2024-11-12T14:05:00+00:00"}
+
+
+def test_remote_first_seen(tmp_path):
+    path = tmp_path / "postings.jsonl"
+    path.write_text('{"id":"1","first_seen_at":"2026-10-01T00:00:00+00:00"}\n{"id":"2"}\n', encoding="utf-8")
+    assert publish.remote_first_seen(FakeApi(remote_manifest=str(path)), "r") == {"1": "2026-10-01T00:00:00+00:00"}
+    assert publish.remote_first_seen(FakeApi(), "r") == {}
+
+
 def test_verify_catches_tampering(con, fake_embedder, tmp_path):
     folder, _ = build(con, fake_embedder, tmp_path / "dist")
     path = folder / "postings.jsonl"

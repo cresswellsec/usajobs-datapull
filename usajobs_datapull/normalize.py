@@ -12,6 +12,7 @@
     anything odd goes in quality_flags
   * HR contacts: contact fields never copied; any sentence naming an email,
     phone or person to contact is dropped (contact_info_redacted)
+  * fingerprint: the same position across reposts (no dates or ids in it)
   * schema drift (fields added/removed by the API) reported to data/reports/
 
 Scope (JOB_SERIES) is applied later, so changing it never needs a re-normalize.
@@ -65,6 +66,10 @@ ANNUAL_FACTOR = {
     "FB": None, "ST": None, "WC": None,
 }
 
+# AnnouncementClosingType code list. AnnouncementClosingTypeOption holds the
+# applicant cap when the type is "03".
+CLOSING_TYPES = {"01": "closing_date", "02": "open_continuous", "03": "applicant_cutoff", "04": "closing_time"}
+
 # Schema drift. KNOWN_* = every field seen in the 2024 archive or the first
 # 2026 live fetch (which added the AnnouncementClosingType* and
 # HiringPathDisplay fields). A field outside
@@ -94,8 +99,11 @@ USED_FIELDS = {"ApplicationCloseDate", "ApplyURI", "DepartmentName", "JobCategor
                "OrganizationName", "PositionID", "PositionLocation", "PositionLocationDisplay",
                "PositionRemuneration", "PositionTitle", "PositionURI", "PublicationStartDate",
                "QualificationSummary", "UserArea"}
-USED_DETAILS = {"HighGrade", "HiringPath", "JobSummary", "KeyRequirements", "LowGrade", "MajorDuties",
-                "RemoteIndicator", "SecurityClearance", "TeleworkEligible"}
+# PositionSensitivitiy, PreviewQuestionnaireurl and TotalOpenings are read too, but
+# the API leaves them out of some postings, so their absence isn't drift.
+USED_DETAILS = {"AnnouncementClosingType", "Education", "Evaluations", "HighGrade", "HiringPath", "JobSummary",
+                "KeyRequirements", "LowGrade", "MajorDuties", "PromotionPotential", "RemoteIndicator",
+                "SecurityClearance", "TeleworkEligible"}
 DRIFT_WARN_SHARE = 0.05
 FIELDS_TRACKED = ("title", "agency", "summary", "duties", "qualifications", "salary_min",
                   "salary_annual_min", "grade_low", "clearance", "remote", "telework",
@@ -346,9 +354,18 @@ def to_record(cid: str, desc: dict, hiring_labels: dict[str, str]) -> dict:
     if broad:
         flags.append("broad_notice")
 
+    # how the announcement closes; the cap only applies to applicant cut-off
+    closing_code = _str(details.get("AnnouncementClosingType") or desc.get("AnnouncementClosingType"))
+    closing_type = CLOSING_TYPES.get(closing_code) if closing_code else None
+    if closing_code and closing_type is None:
+        flags.append("unmapped_closing_type")
+    cap = _str(details.get("AnnouncementClosingTypeOption") or desc.get("AnnouncementClosingTypeOption"))
+    application_cap = int(cap) if closing_type == "applicant_cutoff" and cap and cap.isdigit() and int(cap) else None
+
     clearance = _str(details.get("SecurityClearance"))
     record = {
         "id": cid,
+        "source": "usajobs",
         "position_id": _str(desc.get("PositionID")),
         "title": _str(desc.get("PositionTitle")),
         "agency": _str(desc.get("OrganizationName")),
@@ -368,16 +385,25 @@ def to_record(cid: str, desc: dict, hiring_labels: dict[str, str]) -> dict:
         "telework": _bool(details.get("TeleworkEligible")),
         "clearance": clearance,
         "clearance_required": None if clearance is None else clearance.lower() != "not required",
+        "position_sensitivity": _str(details.get("PositionSensitivitiy")),
+        "promotion_potential": _grade(details.get("PromotionPotential")),
+        "openings": _str(details.get("TotalOpenings")),
         "hiring_paths": hiring_paths,
         "opens_at": opens_at,
         "closes_at": closes_at,
+        "closing_type": closing_type,
+        "application_cap": application_cap,
         "url": _url(desc.get("PositionURI")),
         "apply_url": _url(apply[0]) if apply else None,
+        "questionnaire_url": _url(details.get("PreviewQuestionnaireurl")),
         "summary": clean_text(details.get("JobSummary")),
         "duties": clean_text(details.get("MajorDuties")),
         "qualifications": clean_text(desc.get("QualificationSummary")),
         "key_requirements": [t for t in (clean_text(k) for k in details.get("KeyRequirements") or []) if t],
+        "education": clean_text(details.get("Education")),
+        "evaluations": clean_text(details.get("Evaluations")),
         "broad_notice": broad,
+        "fingerprint": None,
         "group_id": None,       # set once all postings are known
         "quality_flags": [],
     }
@@ -387,12 +413,26 @@ def to_record(cid: str, desc: dict, hiring_labels: dict[str, str]) -> dict:
             flags.append("contact_info_redacted")
         if not record[field]:
             flags.append(f"missing_{field}")
+    for field in ("education", "evaluations"):
+        record[field], redacted = redact_contacts(record[field])
+        if redacted:
+            flags.append("contact_info_redacted")
     cleaned = [redact_contacts(k) for k in record["key_requirements"]]
     record["key_requirements"] = [k for k, _ in cleaned if k]
     if any(r for _, r in cleaned):
         flags.append("contact_info_redacted")
     record["quality_flags"] = sorted(set(flags))
+    record["fingerprint"] = fingerprint(record)
     return record
+
+
+def fingerprint(r: dict) -> str:
+    """The same position across reposts: what the job is and where, without
+    dates, control or announcement numbers."""
+    parts = [" ".join((r["title"] or "").lower().split()), r["agency"] or "", r["department"] or "",
+             ",".join(sorted(r["series"])), r["pay_plan"] or "", r["grade_low"] or "", r["grade_high"] or "",
+             "|".join(sorted((l["name"] or "") for l in r["locations"]))]
+    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
 def content_hash(record: dict) -> str:
@@ -501,11 +541,20 @@ def normalize_dir(directory: Path, hiring_labels: dict[str, str]) -> tuple[dict,
     return postings, quarantine, counts, report
 
 
-def save(con, label: str, postings: dict, quarantine: list) -> None:
+def fetch_started(directory: Path) -> str | None:
+    """started_at from the folder's _fetch.json (live fetches only)."""
+    try:
+        return json.loads((directory / "_fetch.json").read_text(encoding="utf-8")).get("started_at")
+    except (OSError, ValueError):
+        return None
+
+
+def save(con, label: str, postings: dict, quarantine: list, fetched_at: str | None = None) -> None:
     """Replace one snapshot's postings and quarantine rows, atomically."""
     with con:
         con.execute("DELETE FROM postings WHERE snapshot = ?", (label,))
         con.execute("DELETE FROM quarantine WHERE snapshot = ?", (label,))
+        con.execute("INSERT OR REPLACE INTO snapshots (snapshot, fetched_at) VALUES (?, ?)", (label, fetched_at))
         con.executemany(
             "INSERT INTO postings (snapshot, id, position_id, content_hash, record_json) VALUES (?, ?, ?, ?, ?)",
             [(label, r["id"], r["position_id"], content_hash(r), json.dumps(r, ensure_ascii=False))
@@ -538,7 +587,7 @@ def run() -> None:
     run_id = store.start_run(con, "normalize", label)
     try:
         postings, quarantine, counts, report = normalize_dir(directory, hiring)
-        save(con, label, postings, quarantine)
+        save(con, label, postings, quarantine, fetch_started(directory))
     except Exception:
         store.finish_run(con, run_id, {}, status="failed")
         raise
