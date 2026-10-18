@@ -48,6 +48,7 @@ Every published bundle passed all of these:
 2. Every file's SHA-256 and size match the manifest.
 3. `postings.id` is unique, every chunk's `posting_id` exists, every posting has a chunk.
 4. One vector per chunk, same order, manifest dimension, int8 within cosine 0.99.
+   One vector per posting, in `postings.jsonl` order, with the same guarantees.
 5. `conformance.json` is reproduced from the written files.
 6. Only postings in `source.series` and open on `source.as_of`.
 7. One record per posting. Separate announcements of the same job share a `group_id`;
@@ -61,6 +62,8 @@ Every published bundle passed all of these:
 12. `schema_version` is semver; old bundles stay available by tag.
 13. A posting's `first_seen_at` is carried over unchanged while it stays in
     consecutive bundles.
+14. `index.jsonl` lists every posting in `postings.jsonl` order, with values
+    identical to the posting's.
 
 ## Limits
 

@@ -10,6 +10,7 @@
     "source",
     "counts",
     "embedding",
+    "posting_embedding",
     "chunking",
     "lexical",
     "files"
@@ -58,6 +59,49 @@
         "doc_prefix",
         "max_tokens"
       ]
+    },
+    "posting_embedding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "sections",
+        "fallback",
+        "normalized",
+        "dtype",
+        "quantization"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "mean"
+          ]
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fallback": {
+          "enum": [
+            "all_chunks"
+          ]
+        },
+        "normalized": {
+          "type": "boolean"
+        },
+        "dtype": {
+          "enum": [
+            "int8"
+          ]
+        },
+        "quantization": {
+          "enum": [
+            "per_row_symmetric"
+          ]
+        }
+      }
     },
     "chunking": {
       "type": "object",

@@ -9,13 +9,16 @@ can change. JSON Schemas ship in the bundle (`schema/`).
 |---|---|---|
 | `manifest.json` | JSON | What this bundle is and how to read it. Read it first. |
 | `postings.jsonl` | JSON Lines, UTF-8, `\n` | One posting per line, sorted by `id` |
+| `index.jsonl` | JSON Lines, UTF-8, `\n` | A compact subset of each posting, same order as `postings.jsonl` |
 | `chunks.jsonl` | JSON Lines, UTF-8, `\n` | One searchable chunk per line. **Line order = vector row order.** |
 | `vectors.int8.bin` | raw binary | `N × D` int8, row-major. Row *i* = chunk *i*. |
 | `scales.f32.bin` | raw binary | `N` float32 little-endian, one scale per row |
+| `posting_vectors.int8.bin` | raw binary | `P × D` int8, row-major. Row *k* = posting *k* of `postings.jsonl`. |
+| `posting_scales.f32.bin` | raw binary | `P` float32 little-endian, one scale per row |
 | `facets.json` | JSON | Filter values and counts |
 | `conformance.json` | JSON | Fixed queries and expected results, for checking a consumer searches correctly |
 | `quality.json` | JSON | Data-quality summary of this build (counts, flags, completeness) |
-| `schema/*.schema.json` | JSON Schema 2020-12 | `postings`, `chunks`, `manifest` |
+| `schema/*.schema.json` | JSON Schema 2020-12 | `postings`, `index`, `chunks`, `manifest` |
 | `CONTRACT.md`, `BUNDLE.md` | Markdown | The data contract and this spec |
 | `examples.json` | JSON | *Optional, not yet produced.* Example queries with pre-generated answers |
 | `README.md` | Markdown | Hugging Face dataset card (human-facing, not part of the machine contract) |
@@ -24,7 +27,7 @@ can change. JSON Schemas ship in the bundle (`schema/`).
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "bundle_id": "2026-10-12_a1b2c3d4",
   "built_at": "2026-10-12T06:00:00+00:00",
   "source": {
@@ -47,6 +50,14 @@ can change. JSON Schemas ship in the bundle (`schema/`).
     "quantization": "per_row_symmetric",
     "query_prefix": "Represent this sentence for searching relevant passages: ",
     "doc_prefix": ""
+  },
+  "posting_embedding": {
+    "method": "mean",
+    "sections": ["duties", "qualifications"],
+    "fallback": "all_chunks",
+    "normalized": true,
+    "dtype": "int8",
+    "quantization": "per_row_symmetric"
   },
   "chunking": {
     "strategy": "per_section",
@@ -169,6 +180,14 @@ contact (an email address, a phone number, "Ms. Smith", "contact Jane Doe",
 | `contact_info_redacted` | One or more HR-contact sentences were removed from the text |
 | `missing_summary`, `missing_duties`, `missing_qualifications` | That section is empty |
 
+## index.jsonl
+
+One line per posting, in the same order as `postings.jsonl`, with these fields copied unchanged:
+`id`, `fingerprint`, `group_id`, `first_seen_at`, `title`, `agency`, `department`, `series`, `pay_plan`,
+`grade_low`, `grade_high`, `location_display`, `remote`, `hiring_paths`, `opens_at`, `closes_at`,
+`closing_type`, `application_cap`, `url`. About 7% of the size of `postings.jsonl`, for consumers that
+only need to list or compare postings.
+
 ## chunks.jsonl
 
 | Field | Type | Notes |
@@ -200,6 +219,16 @@ Chunks are ordered by `posting_id`, then section (`summary`, `duties`,
   (`embedding.onnx_file`), pool with `embedding.pooling` (`cls` = first token,
   `mean` = attention-masked mean), truncate at `embedding.max_tokens`, L2-normalize.
   In Transformers.js: `pipeline('feature-extraction', model, { pooling, normalize: true })`.
+
+## Posting vectors
+
+- One vector per posting: the mean of that posting's chunk vectors in `posting_embedding.sections`
+  (`duties`, `qualifications`), or of all its chunks if it has none of those sections. Computed from the
+  float vectors, L2-normalized, then quantized the same way as chunk vectors.
+- `posting_vectors.int8.bin`: `counts.postings × embedding.dim` int8; `posting_scales.f32.bin`: one float32
+  per row. Row *k* is posting *k* of `postings.jsonl` and `index.jsonl`.
+- Similarity between two postings: dot product of their dequantized rows. The build checks every row stays
+  within cosine 0.99 of the float vector.
 
 ## Keyword search: tokenizer v1 and BM25
 
@@ -273,6 +302,7 @@ cosine. Informational; its shape may grow in minor versions.
 
 | Version | Change |
 |---|---|
+| 1.3.0 | Added `index.jsonl` (compact posting subset), `posting_vectors.int8.bin` + `posting_scales.f32.bin` (one vector per posting), `schema/index.schema.json`, manifest `posting_embedding` |
 | 1.2.0 | Postings: added `source`, `position_sensitivity`, `promotion_potential`, `openings`, `closing_type`, `application_cap`, `questionnaire_url`, `education`, `evaluations`, `fingerprint`, `first_seen_at`. Flag `unmapped_closing_type`. |
 | 1.1.4 | Update cadence, change detection and display rules documented |
 - Each publish is one Hugging Face commit tagged with the `bundle_id`.

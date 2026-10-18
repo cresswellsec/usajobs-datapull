@@ -21,7 +21,8 @@ BUNDLE_PATTERNS = ["*.json", "*.jsonl", "*.bin", "*.md", "schema/*"]
 # Files that change when the same text is embedded on a different CPU (int8
 # rounding flips), or that only report on the build. They don't decide whether
 # the data changed.
-NOT_DATA = {"vectors.int8.bin", "scales.f32.bin", "conformance.json", "quality.json"}
+NOT_DATA = {"vectors.int8.bin", "scales.f32.bin", "posting_vectors.int8.bin", "posting_scales.f32.bin",
+            "conformance.json", "quality.json"}
 
 
 def _not_found(repo_id: str, e: Exception) -> RuntimeError:
