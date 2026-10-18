@@ -21,11 +21,16 @@ import numpy as np
 from . import config, retrieval, store
 from .embed import lookup
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 SCHEMAS = Path(__file__).parent / "schemas"
 REPO = Path(__file__).resolve().parent.parent
 DOCS = {"CONTRACT.md": REPO / "CONTRACT.md", "BUNDLE.md": REPO / "docs" / "BUNDLE.md"}   # shipped in every bundle
 HASHED_EXCLUDE = {"manifest.json", "README.md"}
+# index.jsonl: one compact line per posting, same order as postings.jsonl
+INDEX_FIELDS = ("id", "fingerprint", "group_id", "first_seen_at", "title", "agency", "department", "series",
+                "pay_plan", "grade_low", "grade_high", "location_display", "remote", "hiring_paths",
+                "opens_at", "closes_at", "closing_type", "application_cap", "url")
+POSTING_VECTOR_SECTIONS = ("duties", "qualifications")   # all of a posting's chunks if it has none of these
 
 
 # --- writing ---------------------------------------------------------------
@@ -75,6 +80,26 @@ def facets(postings: list[dict]) -> dict:
             f["series"][s] += 1
     return {k: ranked(Counter({v: c for v, c in counter.items() if v is not None and c}))
             for k, counter in f.items()}
+
+
+def posting_vectors(postings: list[dict], chunks: list[dict], vectors: np.ndarray) -> np.ndarray:
+    """One vector per posting, in postings order: the L2-normalized mean of its
+    POSTING_VECTOR_SECTIONS chunk vectors, or of all its chunks if it has none."""
+    rows: dict[str, list[int]] = {}
+    for i, c in enumerate(chunks):
+        rows.setdefault(c["posting_id"], []).append(i)
+    out = np.zeros((len(postings), vectors.shape[1]), dtype=np.float32)
+    for k, p in enumerate(postings):
+        mine = rows[p["id"]]
+        picked = [i for i in mine if chunks[i]["section"] in POSTING_VECTOR_SECTIONS] or mine
+        v = vectors[picked].mean(axis=0)
+        out[k] = v / (np.linalg.norm(v) or 1.0)
+    return out
+
+
+def _worst_cosine(original: np.ndarray, deq: np.ndarray) -> float:
+    return float(np.min(np.sum(deq * original, axis=1) /
+                        (np.linalg.norm(deq, axis=1) * np.linalg.norm(original, axis=1))))
 
 
 def conformance(chunks: list[dict], matrix: np.ndarray, embedder) -> dict:
@@ -132,7 +157,9 @@ keyword tokenizer, conformance checks).
 | `manifest.json` | what this bundle is and how to read it (read first) |
 | `postings.jsonl` | one posting per line |
 | `chunks.jsonl` | one searchable chunk per line; line *i* = vector row *i* |
+| `index.jsonl` | compact subset of each posting, same order as `postings.jsonl` |
 | `vectors.int8.bin`, `scales.f32.bin` | embeddings, int8 + per-row float32 scale |
+| `posting_vectors.int8.bin`, `posting_scales.f32.bin` | one embedding per posting, same order as `postings.jsonl` |
 | `facets.json` | filter values and counts |
 | `conformance.json` | queries with expected results, for testing a consumer |
 | `quality.json` | data-quality summary for this build |
@@ -169,10 +196,14 @@ def build(con, label: str, embedder, series: list[str], out_root: Path, built_at
     q, scales = retrieval.quantize(vectors)
     deq = retrieval.dequantize(q, scales)
 
-    worst = float(np.min(np.sum(deq * vectors, axis=1) /
-                         (np.linalg.norm(deq, axis=1) * np.linalg.norm(vectors, axis=1))))
+    worst = _worst_cosine(vectors, deq)
     if worst < 0.99:
         raise AssertionError(f"int8 quantization too lossy: worst cosine {worst:.4f}")
+    pvec = posting_vectors(postings, chunks, vectors)
+    pq, pscales = retrieval.quantize(pvec)
+    worst_posting = _worst_cosine(pvec, retrieval.dequantize(pq, pscales))
+    if worst_posting < 0.99:
+        raise AssertionError(f"int8 quantization too lossy for posting vectors: worst cosine {worst_posting:.4f}")
 
     partial = out_root / "bundle.partial"
     final = out_root / "bundle"
@@ -184,8 +215,11 @@ def build(con, label: str, embedder, series: list[str], out_root: Path, built_at
                    "text": c["text"], "tokens": t} for c, t in zip(chunks, tokens)]
     _write_jsonl(partial / "postings.jsonl", postings)
     _write_jsonl(partial / "chunks.jsonl", chunk_rows)
+    _write_jsonl(partial / "index.jsonl", [{k: p[k] for k in INDEX_FIELDS} for p in postings])
     (partial / "vectors.int8.bin").write_bytes(q.tobytes(order="C"))
     (partial / "scales.f32.bin").write_bytes(scales.astype("<f4").tobytes())
+    (partial / "posting_vectors.int8.bin").write_bytes(pq.tobytes(order="C"))
+    (partial / "posting_scales.f32.bin").write_bytes(pscales.astype("<f4").tobytes())
     _write_text(partial / "facets.json", _dumps(facets(postings)) + "\n")
     _write_text(partial / "conformance.json", _dumps(conformance(chunk_rows, deq, embedder)) + "\n")
     (partial / "schema").mkdir()
@@ -207,6 +241,7 @@ def build(con, label: str, embedder, series: list[str], out_root: Path, built_at
                              for f in ("summary", "duties", "qualifications", "salary_annual_min",
                                        "grade_low", "clearance", "remote", "telework", "closes_at")},
             "quantization_worst_cosine": round(worst, 5),
+            "posting_quantization_worst_cosine": round(worst_posting, 5),
         },
     }
     _write_text(partial / "quality.json", _dumps(quality) + "\n")
@@ -224,6 +259,8 @@ def build(con, label: str, embedder, series: list[str], out_root: Path, built_at
         "source": {"api": "usajobs", "series": series, "snapshot": label, "as_of": as_of, "status": "open"},
         "counts": {"postings": n, "chunks": len(chunk_rows)},
         "embedding": {**spec, "normalized": True, "dtype": "int8", "quantization": "per_row_symmetric"},
+        "posting_embedding": {"method": "mean", "sections": list(POSTING_VECTOR_SECTIONS), "fallback": "all_chunks",
+                              "normalized": True, "dtype": "int8", "quantization": "per_row_symmetric"},
         "chunking": {"strategy": "per_section", "sections": list(store.SECTION_ORDER),
                      "max_words": config.MAX_CHUNK_WORDS,
                      "header_fields": ["title", "agency", "location", "grade"],
@@ -248,13 +285,19 @@ def read(folder: Path) -> dict:
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     postings = [json.loads(l) for l in (folder / "postings.jsonl").read_text(encoding="utf-8").splitlines() if l]
     chunks = [json.loads(l) for l in (folder / "chunks.jsonl").read_text(encoding="utf-8").splitlines() if l]
+    index = [json.loads(l) for l in (folder / "index.jsonl").read_text(encoding="utf-8").splitlines() if l]
     dim = manifest["embedding"]["dim"]
-    q = np.frombuffer((folder / "vectors.int8.bin").read_bytes(), dtype=np.int8)
-    scales = np.frombuffer((folder / "scales.f32.bin").read_bytes(), dtype="<f4")
-    if q.size != len(chunks) * dim or scales.size != len(chunks):
-        raise AssertionError(f"vector files don't match {len(chunks)} chunks x {dim} dims")
-    return {"manifest": manifest, "postings": postings, "chunks": chunks,
-            "matrix": retrieval.dequantize(q.reshape(len(chunks), dim), scales)}
+
+    def matrix(vec_file: str, scale_file: str, rows: int, what: str) -> np.ndarray:
+        q = np.frombuffer((folder / vec_file).read_bytes(), dtype=np.int8)
+        scales = np.frombuffer((folder / scale_file).read_bytes(), dtype="<f4")
+        if q.size != rows * dim or scales.size != rows:
+            raise AssertionError(f"{vec_file} doesn't match {rows} {what} x {dim} dims")
+        return retrieval.dequantize(q.reshape(rows, dim), scales)
+
+    return {"manifest": manifest, "postings": postings, "chunks": chunks, "index": index,
+            "matrix": matrix("vectors.int8.bin", "scales.f32.bin", len(chunks), "chunks"),
+            "posting_matrix": matrix("posting_vectors.int8.bin", "posting_scales.f32.bin", len(postings), "postings")}
 
 
 def verify(folder: Path, embedder=None) -> dict:
@@ -273,6 +316,15 @@ def verify(folder: Path, embedder=None) -> dict:
             raise AssertionError(f"checksum/size mismatch: {rel}")
 
     posting_schema, chunk_schema = load("postings.schema.json"), load("chunks.schema.json")
+    index_schema = load("index.schema.json")
+    if [r.get("id") for r in b["index"]] != [p["id"] for p in b["postings"]]:
+        raise AssertionError("index.jsonl doesn't list the postings in postings.jsonl order")
+    for r, p in zip(b["index"], b["postings"]):
+        problems = schema_errors(r, index_schema)
+        if problems:
+            raise AssertionError(f"index row {r.get('id')} fails schema: {problems[0]}")
+        if any(r[k] != p[k] for k in INDEX_FIELDS):
+            raise AssertionError(f"index row {r['id']} differs from its posting")
     for p in b["postings"]:
         problems = schema_errors(p, posting_schema)
         if problems:

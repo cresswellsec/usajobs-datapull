@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from usajobs_datapull import __main__ as cli
@@ -54,9 +55,11 @@ def test_bundle_builds_verifies_and_matches_contract(con, fake_embedder, tmp_pat
     folder, m = build(con, fake_embedder, tmp_path / "dist")
     assert folder.name == "bundle" and not (tmp_path / "dist" / "bundle.partial").exists()
     names = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()}
-    assert names == {"manifest.json", "postings.jsonl", "chunks.jsonl", "vectors.int8.bin", "scales.f32.bin",
+    assert names == {"manifest.json", "postings.jsonl", "chunks.jsonl", "index.jsonl", "vectors.int8.bin",
+                     "scales.f32.bin", "posting_vectors.int8.bin", "posting_scales.f32.bin",
                      "facets.json", "conformance.json", "quality.json", "README.md", "CONTRACT.md", "BUNDLE.md",
-                     "schema/postings.schema.json", "schema/chunks.schema.json", "schema/manifest.schema.json"}
+                     "schema/postings.schema.json", "schema/chunks.schema.json", "schema/manifest.schema.json",
+                     "schema/index.schema.json"}
     assert m["bundle_id"].startswith("2024-11-12_")
     assert m["embedding"]["query_prefix"].startswith("Represent this sentence")
     assert m["source"] == {"api": "usajobs", "series": ["2210"], "snapshot": LABEL, "as_of": "2024-11-12",
@@ -103,6 +106,41 @@ def test_remote_first_seen(tmp_path):
     path.write_text('{"id":"1","first_seen_at":"2026-10-01T00:00:00+00:00"}\n{"id":"2"}\n', encoding="utf-8")
     assert publish.remote_first_seen(FakeApi(remote_manifest=str(path)), "r") == {"1": "2026-10-01T00:00:00+00:00"}
     assert publish.remote_first_seen(FakeApi(), "r") == {}
+
+
+def test_index_and_posting_vectors(con, fake_embedder, tmp_path):
+    folder, m = build(con, fake_embedder, tmp_path / "dist")
+    b = bundle.read(folder)
+    assert [r["id"] for r in b["index"]] == [p["id"] for p in b["postings"]]
+    assert all(r == {k: p[k] for k in bundle.INDEX_FIELDS} for r, p in zip(b["index"], b["postings"]))
+    assert b["posting_matrix"].shape == (len(b["postings"]), m["embedding"]["dim"])
+    assert m["posting_embedding"]["sections"] == ["duties", "qualifications"]
+    # row k ~ the normalized mean of posting k's duties + qualifications chunk vectors
+    k = 0
+    pid = b["postings"][k]["id"]
+    rows = [i for i, c in enumerate(b["chunks"]) if c["posting_id"] == pid
+            and c["section"] in ("duties", "qualifications")]
+    expected = b["matrix"][rows].mean(axis=0)
+    got = b["posting_matrix"][k]
+    cos = float(expected @ got / (np.linalg.norm(expected) * np.linalg.norm(got)))
+    assert cos > 0.99
+
+
+def test_posting_vector_falls_back_to_all_chunks():
+    postings = [{"id": "1"}, {"id": "2"}]
+    chunks = [{"posting_id": "1", "section": "summary"}, {"posting_id": "1", "section": "duties"},
+              {"posting_id": "2", "section": "summary"}]
+    vectors = np.array([[1, 0], [0, 1], [3, 4]], dtype=np.float32)
+    out = bundle.posting_vectors(postings, chunks, vectors)
+    assert np.allclose(out[0], [0, 1])              # duties only; the summary is left out
+    assert np.allclose(out[1], [0.6, 0.8])          # no duties/qualifications: all chunks, normalized
+
+
+def test_index_schema_matches_postings_schema():
+    load = lambda n: json.loads((bundle.SCHEMAS / n).read_text(encoding="utf-8"))
+    index, postings = load("index.schema.json"), load("postings.schema.json")
+    assert index["required"] == list(bundle.INDEX_FIELDS)
+    assert all(index["properties"][k] == postings["properties"][k] for k in bundle.INDEX_FIELDS)
 
 
 def test_verify_catches_tampering(con, fake_embedder, tmp_path):
@@ -209,6 +247,7 @@ def test_publish_skips_when_only_vector_rounding_differs(con, fake_embedder, tmp
     folder, m = build(con, fake_embedder, tmp_path / "dist")
     remote = _remote_like(folder, tmp_path, bundle_id="2026-10-12_00000000",
                           **{"file:vectors.int8.bin": "0" * 64, "file:scales.f32.bin": "1" * 64,
+                             "file:posting_vectors.int8.bin": "4" * 64, "file:posting_scales.f32.bin": "5" * 64,
                              "file:conformance.json": "2" * 64, "file:quality.json": "3" * 64})
     api = FakeApi(remote_manifest=remote)
     result = publish.publish(folder, "cccc864/usajobs-postings", api)
