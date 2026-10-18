@@ -50,7 +50,8 @@ Every published bundle passed all of these:
 4. One vector per chunk, same order, manifest dimension, int8 within cosine 0.99.
 5. `conformance.json` is reproduced from the written files.
 6. Only postings in `source.series` and open on `source.as_of`.
-7. One record per posting. Separate announcements of the same job share a `group_id`.
+7. One record per posting. Separate announcements of the same job share a `group_id`;
+   the same position across reposts shares a `fingerprint`.
 8. Unknown is `null` or `[]`, never `""` or `"N/A"`. Plain text, no HTML.
    Grades have no leading zeros, `salary_min ≤ salary_max`, dates are `YYYY-MM-DD`.
 9. Suspicious data is kept and flagged in `quality_flags`.
@@ -58,12 +59,16 @@ Every published bundle passed all of these:
     email, phone or contact person are removed (`contact_info_redacted`).
 11. Same data, same files, same `bundle_id`.
 12. `schema_version` is semver; old bundles stay available by tag.
+13. A posting's `first_seen_at` is carried over unchanged while it stays in
+    consecutive bundles.
 
 ## Limits
 
 - One series, open jobs only, one snapshot date. Hide postings past `closes_at`.
-- Summary, duties, qualifications and key requirements only; link to `url` for the rest.
+- Summary, duties, qualifications, key requirements, education and evaluations only; link to `url` for the rest.
 - City/state/country only, no coordinates.
+- `first_seen_at` is when this pipeline first fetched the posting (checks run
+  every 15 minutes), not when the agency published it (`opens_at`).
 - First salary range only. Annualized as hourly × 2087, daily × 260,
   bi-weekly × 26, monthly × 12.
 - Boilerplate is removed from chunks, not from postings.

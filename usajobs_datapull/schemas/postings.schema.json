@@ -10,6 +10,13 @@
       "pattern": "^\\d+$",
       "description": "USAJOBS control number (primary key)"
     },
+    "source": {
+      "type": "string",
+      "enum": [
+        "usajobs"
+      ],
+      "description": "Where the posting came from"
+    },
     "position_id": {
       "type": [
         "string",
@@ -156,6 +163,24 @@
         "null"
       ]
     },
+    "position_sensitivity": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "promotion_potential": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "openings": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "hiring_paths": {
       "type": "array",
       "items": {
@@ -176,6 +201,26 @@
       ],
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
     },
+    "closing_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "closing_date",
+        "open_continuous",
+        "applicant_cutoff",
+        "closing_time",
+        null
+      ]
+    },
+    "application_cap": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
     "url": {
       "type": [
         "string",
@@ -183,6 +228,12 @@
       ]
     },
     "apply_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "questionnaire_url": {
       "type": [
         "string",
         "null"
@@ -212,12 +263,33 @@
         "type": "string"
       }
     },
+    "education": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evaluations": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "broad_notice": {
       "type": "boolean"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{12}$"
     },
     "group_id": {
       "type": "string",
       "pattern": "^[0-9a-f]{12}$"
+    },
+    "first_seen_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\+00:00|Z)$",
+      "description": "UTC time the posting first appeared in this dataset"
     },
     "quality_flags": {
       "type": "array",
@@ -228,6 +300,7 @@
   },
   "required": [
     "id",
+    "source",
     "position_id",
     "title",
     "agency",
@@ -247,17 +320,27 @@
     "telework",
     "clearance",
     "clearance_required",
+    "position_sensitivity",
+    "promotion_potential",
+    "openings",
     "hiring_paths",
     "opens_at",
     "closes_at",
+    "closing_type",
+    "application_cap",
     "url",
     "apply_url",
+    "questionnaire_url",
     "summary",
     "duties",
     "qualifications",
     "key_requirements",
+    "education",
+    "evaluations",
     "broad_notice",
+    "fingerprint",
     "group_id",
+    "first_seen_at",
     "quality_flags"
   ]
 }

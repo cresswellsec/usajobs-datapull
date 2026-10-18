@@ -24,7 +24,7 @@ can change. JSON Schemas ship in the bundle (`schema/`).
 
 ```json
 {
-  "schema_version": "1.1.4",
+  "schema_version": "1.2.0",
   "bundle_id": "2026-10-12_a1b2c3d4",
   "built_at": "2026-10-12T06:00:00+00:00",
   "source": {
@@ -88,6 +88,7 @@ Broad notices (postings listing many series) are included and flagged.
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | USAJOBS control number. **Primary key.** |
+| `source` | string | Always `"usajobs"` |
 | `position_id` | string \| null | Agency announcement number. Not unique; not a key. |
 | `title` | string | Never empty |
 | `agency` | string \| null | Organization name |
@@ -104,25 +105,50 @@ Broad notices (postings listing many series) are included and flagged.
 | `telework` | boolean \| null | |
 | `clearance` | string \| null | As the API gives it, e.g. `"Secret"`, `"Not Required"`, `"Other"` |
 | `clearance_required` | boolean \| null | `false` only for `"Not Required"` |
+| `position_sensitivity` | string \| null | As the API gives it, e.g. `"Noncritical-Sensitive (NCS)/Moderate Risk"` |
+| `promotion_potential` | string \| null | Highest grade the position can reach; same format as `grade_high` |
+| `openings` | string \| null | As the API gives it: a number or a word such as `"Many"` |
 | `hiring_paths` | string[] | Labels from the USAJOBS code list (unknown codes kept as-is) |
-| `opens_at`, `closes_at` | string (`YYYY-MM-DD`) \| null | |
+| `opens_at`, `closes_at` | string (`YYYY-MM-DD`) \| null | `opens_at` is the publication date |
+| `closing_type` | string \| null | `closing_date`, `open_continuous`, `applicant_cutoff` or `closing_time` (USAJOBS closing-type codes 01–04) |
+| `application_cap` | integer \| null | Applications after which the announcement closes. Set only when `closing_type` is `applicant_cutoff` and the API gives a number. |
 | `url` | string \| null | The posting on usajobs.gov |
 | `apply_url` | string \| null | |
+| `questionnaire_url` | string \| null | Preview of the assessment questionnaire, when the agency provides one |
 | `summary` | string \| null | Plain text |
 | `duties` | string \| null | Plain text (the API's MajorDuties list, joined as sentences) |
 | `qualifications` | string \| null | Plain text |
 | `key_requirements` | string[] | e.g. `"U.S. Citizenship is required."` |
+| `education` | string \| null | Plain text |
+| `evaluations` | string \| null | Plain text: how applicants are evaluated |
 | `broad_notice` | boolean | Lists 10+ series or 50+ locations |
+| `fingerprint` | string (12 hex) | Same position across announcements and reposts. Built from title, agency, department, series, pay plan, grades and location names; dates, `id` and `position_id` are left out. |
 | `group_id` | string (12 hex) | Postings sharing it are the same job posted as separate announcements (e.g. public vs current employees). Apps may collapse them. |
+| `first_seen_at` | string (UTC, `YYYY-MM-DDTHH:MM:SS+00:00`) | When the posting first appeared in this dataset. See below. |
 | `quality_flags` | string[] | See below. Flagged postings are still valid records. |
 
 Unknown values are `null` (or `[]`), never `""`, `"N/A"` or `"Unknown"`.
 HR contact details are deliberately excluded. The agency contact fields
 (email, phone, website) are never copied. In the free text (`summary`,
-`duties`, `qualifications`, `key_requirements`), any sentence that names a
+`duties`, `qualifications`, `key_requirements`, `education`, `evaluations`), any sentence that names a
 contact (an email address, a phone number, "Ms. Smith", "contact Jane Doe",
 "POC: ...") is dropped whole, together with a short lead-in such as
 "Questions?". The posting's `url` is the way to reach the hiring office.
+
+### Identity over time
+
+- `id` identifies one announcement. It never changes.
+- `group_id`: announcements of the same job open over the same dates.
+- `fingerprint`: the same position, including later reposts with new dates and
+  new ids. Postings in one group share a fingerprint, but a fingerprint can
+  span several groups.
+- `first_seen_at` is the start time of the fetch that first returned the
+  posting. It is carried over unchanged from bundle to bundle while the posting
+  stays in the bundle. A posting that drops out and comes back gets a new value.
+  Postings already in the dataset when the field was added (1.2.0) carry the
+  time of that first 1.2.0 build. It is not the agency's posting date (`opens_at`).
+- To list postings added since an earlier read, keep the largest
+  `first_seen_at` from that read and select postings with a later value.
 
 ### Quality flags
 
@@ -139,6 +165,7 @@ contact (an email address, a phone number, "Ms. Smith", "contact Jane Doe",
 | `missing_dates` | No opening or closing date |
 | `remote_flag_mismatch` | A location says "remote job" but RemoteIndicator is false |
 | `unmapped_hiring_path` | A hiring-path code not in the code list |
+| `unmapped_closing_type` | A closing-type code outside 01–04; `closing_type` is null |
 | `contact_info_redacted` | One or more HR-contact sentences were removed from the text |
 | `missing_summary`, `missing_duties`, `missing_qualifications` | That section is empty |
 
@@ -243,6 +270,11 @@ cosine. Informational; its shape may grow in minor versions.
 - `schema_version` is semver. **Major** = breaking (consumers must update);
   **minor** = additive (new optional fields or files); **patch** = docs.
 - Consumers check the major version and refuse bundles they don't support.
+
+| Version | Change |
+|---|---|
+| 1.2.0 | Postings: added `source`, `position_sensitivity`, `promotion_potential`, `openings`, `closing_type`, `application_cap`, `questionnaire_url`, `education`, `evaluations`, `fingerprint`, `first_seen_at`. Flag `unmapped_closing_type`. |
+| 1.1.4 | Update cadence, change detection and display rules documented |
 - Each publish is one Hugging Face commit tagged with the `bundle_id`.
   `main` is always the latest. Publishing an identical bundle is a no-op.
 - The pipeline checks every 15 minutes and publishes only on a change (see

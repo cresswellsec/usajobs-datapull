@@ -5,6 +5,7 @@
   chunks      snapshot, chunk_id, posting_id, section, seq, text
   embeddings  model_id, text_hash, dim, tokens, truncated, vector
   runs        run_id, stage, snapshot, started, finished, counts_json, status
+  snapshots   snapshot, fetched_at
 
 Rows are keyed by snapshot; embeddings by (model, text hash). Everything is
 rebuildable from data/raw/.
@@ -51,6 +52,10 @@ CREATE TABLE IF NOT EXISTS embeddings (
     truncated    INTEGER NOT NULL,
     vector       BLOB NOT NULL,
     PRIMARY KEY (model_id, text_hash)
+);
+CREATE TABLE IF NOT EXISTS snapshots (
+    snapshot     TEXT PRIMARY KEY,
+    fetched_at   TEXT
 );
 CREATE TABLE IF NOT EXISTS runs (
     run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +106,12 @@ def last_counts(con: sqlite3.Connection, stage: str, label: str) -> dict:
         "SELECT counts_json FROM runs WHERE stage = ? AND snapshot = ? AND status = 'ok' "
         "ORDER BY run_id DESC LIMIT 1", (stage, label)).fetchone()
     return json.loads(row[0]) if row and row[0] else {}
+
+
+def fetched_at(con: sqlite3.Connection, label: str) -> str | None:
+    """When the fetch behind a snapshot started (UTC), if known (archives don't record it)."""
+    row = con.execute("SELECT fetched_at FROM snapshots WHERE snapshot = ?", (label,)).fetchone()
+    return row[0] if row else None
 
 
 # --- which snapshot, which postings -----------------------------------------

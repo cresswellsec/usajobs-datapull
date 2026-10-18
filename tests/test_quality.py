@@ -15,7 +15,9 @@ HIRING = codelists.load("hiringpaths", FIXTURES / "codelists")
 
 @pytest.fixture
 def base():
-    return copy.deepcopy(json.loads(SAMPLE.read_text(encoding="utf-8"))[3])   # 780196200, a clean GS posting
+    desc = copy.deepcopy(json.loads(SAMPLE.read_text(encoding="utf-8"))[3])   # 780196200, a clean GS posting
+    details(desc)["Evaluations"] = "You will be evaluated on the duties and qualifications listed above."  # had an email
+    return desc
 
 
 def rec(desc):
@@ -252,3 +254,54 @@ def test_report_counts_hr_contact_removal(tmp_path, base):
 def test_grade_numbers_are_not_mistaken_for_phones(base):
     details(base)["JobSummary"] = "GS-2210-13 position, salary $120,000 - $150,000, control 721195600."
     assert "[phone removed]" not in rec(base)["summary"]
+
+
+@pytest.mark.parametrize("code, option, closing_type, cap", [
+    ("03", "150", "applicant_cutoff", 150),
+    ("03", "N/A", "applicant_cutoff", None),
+    ("01", "01", "closing_date", None),          # an option without a cut-off isn't a cap
+    ("02", None, "open_continuous", None),
+    (None, None, None, None),
+])
+def test_closing_type_and_application_cap(base, code, option, closing_type, cap):
+    details(base)["AnnouncementClosingType"] = code
+    details(base)["AnnouncementClosingTypeOption"] = option
+    r = rec(base)
+    assert (r["closing_type"], r["application_cap"]) == (closing_type, cap)
+    assert "unmapped_closing_type" not in r["quality_flags"]
+
+
+def test_unknown_closing_type_is_flagged(base):
+    details(base)["AnnouncementClosingType"] = "99"
+    r = rec(base)
+    assert r["closing_type"] is None and "unmapped_closing_type" in r["quality_flags"]
+
+
+def test_detail_fields(base):
+    details(base).update(PreviewQuestionnaireurl="https://apply.example.gov:443/Preview/1", PromotionPotential="07",
+                         TotalOpenings="Many", PositionSensitivitiy="Noncritical-Sensitive (NCS)/Moderate Risk")
+    r = rec(base)
+    assert r["source"] == "usajobs"
+    assert r["questionnaire_url"] == "https://apply.example.gov/Preview/1"
+    assert (r["promotion_potential"], r["openings"]) == ("7", "Many")
+    assert r["position_sensitivity"] == "Noncritical-Sensitive (NCS)/Moderate Risk"
+    assert r["evaluations"].startswith("You will be evaluated") and r["education"] is None
+
+
+def test_contacts_are_removed_from_education_and_evaluations(base):
+    details(base)["Evaluations"] = "Applicants are rated on the questionnaire. Email jane.doe@agency.gov with questions."
+    r = rec(base)
+    assert r["evaluations"] == "Applicants are rated on the questionnaire."
+    assert "contact_info_redacted" in r["quality_flags"]
+
+
+def test_fingerprint_ignores_dates_and_ids(base):
+    reposted = copy.deepcopy(base)
+    reposted.update(PositionID="NEW-25-001", PublicationStartDate="2025-01-02", ApplicationCloseDate="2025-01-20")
+    a, b = rec(base), normalize.to_record("2", reposted, HIRING)
+    assert a["fingerprint"] == b["fingerprint"]
+    postings = {"1": a, "2": b}
+    normalize.assign_groups(postings)
+    assert a["group_id"] != b["group_id"]                    # different dates: not the same announcement round
+    details(reposted)["HighGrade"] = "15"
+    assert normalize.to_record("2", reposted, HIRING)["fingerprint"] != a["fingerprint"]

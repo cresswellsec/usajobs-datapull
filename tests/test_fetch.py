@@ -200,6 +200,8 @@ def test_fetch_pages_writes_whole_responses_and_normalize_reads_them(tmp_path):
 
     postings, quarantine, counts, _ = normalize.normalize_dir(folder, {})
     assert counts["postings"] == 503 and quarantine == []   # _fetch.json is skipped
+    assert normalize.fetch_started(folder) == summary["started_at"]
+    assert normalize.fetch_started(tmp_path) is None
 
 
 def test_short_page_stops_without_extra_request(tmp_path):
