@@ -3,5 +3,5 @@
 -r requirements.in
 # same runtime versions as requirements.txt:
 -c requirements.txt
-pytest==9.0.3
-onnx==1.22.0             # tests only: builds a toy model for the embedder test
+pytest==9.1.1
+onnx==1.23.2             # tests only: builds a toy model for the embedder test
